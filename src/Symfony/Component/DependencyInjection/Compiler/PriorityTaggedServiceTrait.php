@@ -12,6 +12,8 @@
 namespace Symfony\Component\DependencyInjection\Compiler;
 
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Exception\InvalidArgumentException;
+use Symfony\Component\DependencyInjection\Exception\LogicException;
 use Symfony\Component\DependencyInjection\Reference;
 
 /**
@@ -36,13 +38,56 @@ trait PriorityTaggedServiceTrait
      *
      * @return Reference[]
      */
-    private function findAndSortTaggedServices($tagName, ContainerBuilder $container)
+    private function findAndSortTaggedServices($tagName, ContainerBuilder $container, string $indexAttribute = null, string $defaultIndexMethod = null)
     {
         $services = array();
 
+        if (null === $indexAttribute && null !== $defaultIndexMethod) {
+            throw new InvalidArgumentException('Default index method cannot be used without specifying a tag attribute.');
+        }
+
         foreach ($container->findTaggedServiceIds($tagName, true) as $serviceId => $attributes) {
             $priority = isset($attributes[0]['priority']) ? $attributes[0]['priority'] : 0;
-            $services[$priority][] = new Reference($serviceId);
+
+            if (null === $indexAttribute && null === $defaultIndexMethod) {
+                $services[$priority][] = new Reference($serviceId);
+
+                continue;
+            }
+
+            if (isset($attributes[0][$indexAttribute])) {
+                $services[$priority][$attributes[0][$indexAttribute]] = new Reference($serviceId);
+
+                continue;
+            }
+
+            if (null === $defaultIndexMethod) {
+                throw new LogicException(sprintf('Tag attribute with name "%s" for service "%s" cannot be found.', $indexAttribute, $serviceId));
+            }
+
+            if (!$r = $container->getReflectionClass($class = $container->getDefinition($serviceId)->getClass())) {
+                throw new InvalidArgumentException(sprintf('Class "%s" used for service "%s" cannot be found.', $class, $serviceId));
+            }
+
+            if (!$r->hasMethod($defaultIndexMethod)) {
+                throw new InvalidArgumentException(sprintf('Class "%s" used for service "%s" has no method "%s".', $class, $serviceId, $defaultIndexMethod));
+            }
+
+            if (!($rm = $r->getMethod($defaultIndexMethod))->isStatic()) {
+                throw new InvalidArgumentException(sprintf('Method "%s" of class "%s" used for service "%s" must be static.', $defaultIndexMethod, $class, $serviceId));
+            }
+
+            if (!$rm->isPublic()) {
+                throw new InvalidArgumentException(sprintf('Method "%s" of class "%s" used for service "%s" must be public.', $defaultIndexMethod, $class, $serviceId));
+            }
+
+            $key = $rm->invoke(null);
+
+            if (!\is_string($key)) {
+                throw new LogicException(sprintf('Return value of method "%s" for class "%s" used for service "%s" must be of type string.', $class, $serviceId, $defaultIndexMethod));
+            }
+
+            $services[$priority][$key] = new Reference($serviceId);
         }
 
         if ($services) {

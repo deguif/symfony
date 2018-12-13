@@ -706,11 +706,13 @@ class YamlFileLoader extends FileLoader
                 }
             }
             if ('tagged' === $value->getTag()) {
-                if (!\is_string($argument) || !$argument) {
-                    throw new InvalidArgumentException(sprintf('"!tagged" tag only accepts non empty string in "%s".', $file));
+                if (\is_string($argument) && $argument) {
+                    return new TaggedIteratorArgument($argument);
+                } elseif (\is_array($argument) && isset($argument['name']) && $argument['name']) {
+                    return new TaggedIteratorArgument($argument['name'], $argument['index_by'] ?? null, $argument['default_index_method'] ?? null);
+                } else {
+                    throw new InvalidArgumentException(sprintf('"!tagged" tag only accepts a non empty string or an array with a key "name" in "%s".', $file));
                 }
-
-                return new TaggedIteratorArgument($argument);
             }
             if ('service' === $value->getTag()) {
                 if ($isParameter) {
